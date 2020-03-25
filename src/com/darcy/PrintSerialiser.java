@@ -3,7 +3,10 @@ package com.darcy;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.geom.AffineTransform;
+import java.awt.image.AffineTransformOp;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.awt.image.WritableRaster;
 import java.io.File;
 import java.io.IOException;
 import java.util.Scanner;
@@ -37,6 +40,21 @@ public class PrintSerialiser {
     // simple code using AffineTransform to flip the image. Somewhere along the way
     // I must of accidentally done this vertically in the coding process.
 
+    private static BufferedImage NearestNeighborScale(BufferedImage image, int x, int y){
+        // try nearest neighbor interpolation for pixel edges
+        BufferedImage after = new BufferedImage(x, y, BufferedImage.TYPE_INT_ARGB);
+
+        double xScale = (double) x / image.getWidth();
+        double yScale = (double) y / image.getHeight();
+
+
+        AffineTransform scaleInstance = AffineTransform.getScaleInstance(xScale, yScale);
+        AffineTransformOp scaleOp
+                = new AffineTransformOp(scaleInstance, AffineTransformOp.TYPE_NEAREST_NEIGHBOR);
+
+        scaleOp.filter(image, after);
+        return after;
+    }
 
     private static BufferedImage createFlipped(BufferedImage image)
     {
@@ -96,26 +114,47 @@ public class PrintSerialiser {
             if(width % RESOLUTION_LIMIT != 0 || height % RESOLUTION_LIMIT != 0){
                 // need to resize image to fit in boundaries of OC printing
                 // which is PIXEL_RESOLUTION^2 per square
+
+
+
                 img = resize(img,
                         width - (width % RESOLUTION_LIMIT),
                         height - (height % RESOLUTION_LIMIT));
+                // TODO: add option for nearest neighbor
+//                img = NearestNeighborScale(img,
+//                        width - (width % RESOLUTION_LIMIT),
+//                        height - (height % RESOLUTION_LIMIT));
             }
             img = resize(img, intInput[0] , intInput[1]);
+//            img = NearestNeighborScale(img, intInput[0], intInput[1]);
             img = createFlipped(img);
 
             // add the digits of X and Y - we are doing inhouse IO
             output.append(getDigits(intInput[0] ) + getDigits(intInput[1] )).append(",");
 
+
+            // test premultiplied alpha
+            img.coerceData(true);
+
             // add the X and Y size in pixels to the start of the file
             output.append(intInput[0]).append(",").append(intInput[1]).append(",");
 
+            // set up alpha channel raster (matrix containing transparency values)
+            WritableRaster alpha = img.getAlphaRaster();
+
+
             for(int i = 0;i < intInput[1]; i++){
                 for(int j = 0; j < intInput[0]; j++){
-                    // also convert to hex
-                    int colour = img.getRGB(j, i);
+                    int colour = 0;
+                    // discard any pixels that are not fully opaque -- see issue
+                    if(alpha.getSample(j, i, 0) == 255){
+                        // convert to hex using Color object
+                        colour = img.getRGB(j, i);
+                    }
+
                     Color colourObj = new Color(colour);
 
-                    // partial transparency: if any of the channels is 0 then remove the
+                    // append string
                     output.append(String.format("%02x%02x%02x", colourObj.getRed(), colourObj.getGreen(), colourObj.getBlue()))
                             .append(",");
                 }
